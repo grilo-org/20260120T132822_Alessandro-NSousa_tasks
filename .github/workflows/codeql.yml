@@ -1,0 +1,63 @@
+name: "CodeQL Analysis"
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch: {}
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    
+    # Previne loop infinito do Sonar
+    if: ${{ !contains(github.event.head_commit.message, 'Add SonarCloud workflow') }}
+    
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: 'java-kotlin'
+            build-mode: 'autobuild'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Configuração do Java 21 (Essencial para projetos modernos)
+    - name: Setup Java for CodeQL
+      if: matrix.language == 'java-kotlin'
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+    
+    # --- ESTRATÉGIA DE BUILD HÍBRIDA ---
+    
+    # CASO 1: Para Java, usamos comando manual que PULA a compilação de testes
+    # Isso evita que testes mal escritos pelo candidato quebrem a análise de segurança
+    - name: Build Java (Skip Tests)
+      if: matrix.language == 'java-kotlin'
+      run: mvn clean install -DskipTests -Dmaven.test.skip=true --batch-mode
+
+    # CASO 2: Para C#, C++, Go, etc., continuamos usando o Autobuild padrão
+    - name: Autobuild (Non-Java)
+      if: matrix.language != 'java-kotlin'
+      uses: github/codeql-action/autobuild@v3
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
